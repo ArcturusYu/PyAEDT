@@ -5,56 +5,53 @@ from torch.utils.data import Dataset, TensorDataset, DataLoader
 import re
 import fileinput
 
-def file_to_dict(filename, idx):
+def file_to_dict(filename):
     data_dict = {}
+    # Regex to match complex numbers
+    complex_num_pattern = re.compile(r'[-+]?\d*\.?\d+e?[-+]?\d*j')
 
-    # Calculate the start and end lines based on the index
-    start_line = idx * 91
-    end_line = start_line + 91
-
-    # Open and read the file
     with open(filename, 'r') as file:
-        # Read all lines and slice out the relevant section
-        data = file.read().splitlines()[start_line:end_line]
+        current_key = None
+        values = []
+        for line_number, line in enumerate(file):
+            if line_number % 91 == 0:  # Every 91 lines a new block starts
+                if current_key is not None:
+                    data_dict[current_key] = values
+                key_part, complex_numbers = re.split(r'\),\[', line)
+                key_part += ')'
+                current_key = tuple(map(float, re.findall(r"[-+]?\d*\.\d+|\d+", key_part)))
+                values = []
+                # Process initial line of complex numbers
+                if complex_numbers.strip():
+                    complex_matches = complex_num_pattern.findall(complex_numbers)
+                    values.extend([complex(num) for num in complex_matches])
+            else:
+                # Continue collecting values
+                line = line.strip().rstrip(']')
+                if line.strip():  # Ensure it's not empty
+                    complex_matches = complex_num_pattern.findall(line)
+                    values.extend([complex(num) for num in complex_matches])
 
-    # Assuming only one unit of data needs to be processed per call
-    line = data[0]
-    # Extract the key from the first part of the line, before the comma that follows the parenthesis
-    key_part, first_value = re.split(r'\),\[', line)
-    key_part += ')'
-    
-    # Convert the key string to an actual tuple of floats
-    key = tuple(map(float, re.findall(r"[-+]?\d*\.\d+|\d+", key_part)))
-    
-    # Combine the lines that form the rest of the complex number array
-    values_str = first_value + ''.join(data[1:])  # Continue from the second element to the end of the slice
-    
-    # Extract the substring inside the brackets and split by 'j' to get each complex number string
-    values_str = values_str.strip(']').replace(' ', '')  # remove the final bracket and any spaces
-    values_parts = values_str.split('j')[:-1]  # split and remove the last empty part after the final 'j'
-    
-    # Add 'j' back to each part and convert to complex numbers
-    values = [complex(part + 'j') for part in values_parts if part.strip()]
-    data_dict[key] = values
+        # Add the last key-value pair
+        if current_key is not None:
+            data_dict[current_key] = values
 
     return data_dict
 
 class rEPhiDataset:
     def __init__(self, file_path, transform=None, target_transform=None):
-        # Assuming 'file_to_dict' function reads the file and returns a dictionary which is then converted to DataFrame.
-        # 'file_to_dict' is not defined in this snippet so ensure you have such a function defined or use pandas.read_csv or similar.
-        self.EPhi_positions_path = file_path
+        self.EPhi_positions = file_to_dict(file_path)
+        self.positions = torch.tensor([k for k in self.EPhi_positions.keys()], dtype=torch.cfloat)
+        self.EPhi = torch.tensor([v for v in self.EPhi_positions.values()], dtype=torch.cfloat)
         self.transform = transform
         self.target_transform = target_transform
 
     def __len__(self):
-        with fileinput.input(files=(self.EPhi_positions_path)) as f:
-            return sum(1 for line in f)//91
-
+        return len(self.EPhi_positions)
+    
     def __getitem__(self, idx):
-        position, EPhi = next(iter(file_to_dict(self.EPhi_positions_path, idx).items()))
-        EPhi = torch.tensor(EPhi, dtype=torch.complex64)
-        position = torch.tensor(position, dtype=torch.complex64)
+        position = self.positions[idx]
+        EPhi = self.EPhi[idx]
         if self.transform:
             EPhi = self.transform(EPhi)
         if self.target_transform:
@@ -146,4 +143,4 @@ def test_model(dataloader, model, criterion, device):
 train_model(train_loader, model, criterion, optimizer, num_epochs=num_epochs)
 test_model(test_loader, model, criterion, device)
 
-torch.save(model,'F:\pythontxtfile')
+# torch.save(model,'F:\pythontxtfile')

@@ -61,21 +61,23 @@ class rEPhiDataset:
 class ComplexConvNetwork(nn.Module):
     def __init__(self):
         super(ComplexConvNetwork, self).__init__()
-        self.conv1 = nn.Conv1d(in_channels=2, out_channels=8, kernel_size=3, padding=1)
+        self.conv1 = nn.Conv1d(in_channels=1, out_channels=8, kernel_size=3, padding=1)
         self.conv2 = nn.Conv1d(in_channels=8, out_channels=16, kernel_size=3, padding=1)
+        # flatten the tensor
         self.fc1 = nn.Linear(181 * 16, 1024)
-        self.fc2 = nn.Linear(1024, 256)
-        self.fc3 = nn.Linear(256, 4)
+        self.fc2 = nn.Linear(1024, 32)
+        self.fc3 = nn.Linear(32, 362)
+        self.fc01 = nn.Linear(4, 32)
         
     def forward(self, x):
-        x = torch.view_as_real(x)  # Converts complex numbers to real, shape becomes (batch_size, 181, 2)
-        x = x.permute(0, 2, 1)
-        # Apply convolutional layers
-        x = F.silu(self.conv1(x))
-        x = F.silu(self.conv2(x))
-        x = x.view(-1, self.num_flat_features(x))
-        x = F.silu(self.fc1(x))
-        x = self.fc2(x)
+        # x = torch.view_as_real(x)  # Converts complex numbers to real, shape becomes (batch_size, 181, 2)
+        # x = x.permute(0, 2, 1)
+        # # Apply convolutional layers
+        # x = F.silu(self.conv1(x))
+        # x = F.silu(self.conv2(x))
+        # x = x.view(-1, self.num_flat_features(x))
+        x = F.relu(self.fc01(x))
+        # x = self.fc2(x)
         x = self.fc3(x)
         return x
 
@@ -103,7 +105,7 @@ test_loader = DataLoader(test_dataset, batch_size=128, shuffle=False)
 criterion = torch.nn.MSELoss()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = ComplexConvNetwork().to(device)
-optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
 
 def train_model(dataloader, model, criterion, device, optimizer, num_epochs):
     model.train()
@@ -123,8 +125,8 @@ def train_model(dataloader, model, criterion, device, optimizer, num_epochs):
                 optimizer.zero_grad()
                 
                 # Forward pass
-                outputs = model(EPhi)
-                loss = criterion(outputs, position)
+                outputs = model(position)
+                loss = criterion(outputs, torch.view_as_real(EPhi).view(-1, 362))
 
                 # Backward and optimize
                 loss.backward()
@@ -146,8 +148,8 @@ def test_model(dataloader, model, criterion, device):
             position = position.to(device)
             EPhi = EPhi.to(device)
 
-            outputs = model(EPhi)
-            loss = criterion(outputs, position)
+            outputs = model(position)
+            loss = criterion(outputs, torch.view_as_real(EPhi).view(-1, 362))
 
             total_loss += loss.item() * position.size(0)
             total_samples += position.size(0)
@@ -155,7 +157,7 @@ def test_model(dataloader, model, criterion, device):
     average_loss = total_loss / total_samples
     print(f'Average Loss: {average_loss:.4f}')
 
-num_epochs = 1000  # Define the number of epochs for training
+num_epochs = 100  # Define the number of epochs for training
 train_model(train_loader, model, criterion, device, optimizer, num_epochs)
 test_model(test_loader, model, criterion, device)
 

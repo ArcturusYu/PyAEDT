@@ -129,6 +129,6 @@ def train_model(dataloader, model, criterion, optimizer, num_epochs=25):
             running_loss += loss.item()
 
         print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {running_loss/len(dataloader):.4f}')
-
+        print(len(dataloader))
 
 train_model(dataloader, model, criterion, optimizer, num_epochs=25)
