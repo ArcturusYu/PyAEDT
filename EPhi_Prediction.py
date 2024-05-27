@@ -41,8 +41,8 @@ def file_to_dict(filename):
 class rEPhiDataset:
     def __init__(self, file_path, transform=None, target_transform=None):
         self.EPhi_positions = file_to_dict(file_path)
-        self.positions = torch.tensor([k for k in self.EPhi_positions.keys()], dtype=torch.complex64)
-        self.EPhi = torch.tensor([v for v in self.EPhi_positions.values()], dtype=torch.complex64)
+        self.positions = torch.tensor([k for k in self.EPhi_positions.keys()], dtype=torch.float)
+        self.EPhi = torch.tensor([v for v in self.EPhi_positions.values()], dtype=torch.cfloat)
         self.transform = transform
         self.target_transform = target_transform
 
@@ -61,25 +61,31 @@ class rEPhiDataset:
 class ComplexConvNetwork(nn.Module):
     def __init__(self):
         super(ComplexConvNetwork, self).__init__()
-        self.conv1 = nn.Conv1d(in_channels=256, out_channels=181, kernel_size=3, padding=1)
-        self.conv2 = nn.Conv1d(in_channels=181, out_channels=64, kernel_size=3, padding=1)
-        self.fc1 = nn.Linear(2 * 181, 128)
-        self.fc2 = nn.Linear(128, 64)
-        self.fc3 = nn.Linear(64, 4)
+        self.conv1 = nn.Conv1d(in_channels=2, out_channels=8, kernel_size=3, padding=1)
+        self.conv2 = nn.Conv1d(in_channels=8, out_channels=16, kernel_size=3, padding=1)
+        self.fc1 = nn.Linear(181 * 16, 1024)
+        self.fc2 = nn.Linear(1024, 256)
+        self.fc3 = nn.Linear(256, 4)
         
     def forward(self, x):
-        x = torch.view_as_real(x)  # Converts complex numbers to real, shape becomes (batch_size, 4, 2)
-        x = x.view(x.size(0), -1)  # Flatten input to shape (batch_size, 8) #flatten to the first dimension
-
+        x = torch.view_as_real(x)  # Converts complex numbers to real, shape becomes (batch_size, 181, 2)
+        x = x.permute(0, 2, 1)
         # Apply convolutional layers
         x = F.silu(self.conv1(x))
         x = F.silu(self.conv2(x))
+        x = x.view(-1, self.num_flat_features(x))
         x = F.silu(self.fc1(x))
-        x = F.silu(self.fc2(x))
+        x = self.fc2(x)
         x = self.fc3(x)
-
         return x
 
+    def num_flat_features(self, x):
+        size = x.size()[1:]  # 除去批处理维度的其他所有维度
+        num_features = 1
+        for s in size:
+            num_features *= s
+        return num_features
+    
 
 dataset = rEPhiDataset(file_path='F:\\pythontxtfile\\eEPhi_example.txt')
 # Assuming dataset is a PyTorch Dataset object
@@ -89,13 +95,8 @@ test_size = total_size - train_size  # Remaining 20%
 print(f'Train size: {train_size}, Test size: {test_size}')
 # Splitting the dataset
 train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
-train_loader = DataLoader(train_dataset, num_workers=0, batch_size=256, shuffle=True)
-test_loader = DataLoader(test_dataset, num_workers=0, batch_size=256, shuffle=False)
-
-# Assume dataloader is already defined and yields position (1x4) and EPhi (1x181)
-# Example usage in a training loop
-
-num_epochs = 50  # Define the number of epochs for training
+train_loader = DataLoader(train_dataset, batch_size=128, shuffle=True)
+test_loader = DataLoader(test_dataset, batch_size=128, shuffle=False)
 
 # Instantiate the model, loss function, and optimizer
 
@@ -104,7 +105,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = ComplexConvNetwork().to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
-def train_model(dataloader, model, criterion, device, optimizer, num_epochs=25):
+def train_model(dataloader, model, criterion, device, optimizer, num_epochs):
     model.train()
     with profiler.profile(
     activities=[profiler.ProfilerActivity.CPU, profiler.ProfilerActivity.CUDA],
@@ -123,7 +124,7 @@ def train_model(dataloader, model, criterion, device, optimizer, num_epochs=25):
                 
                 # Forward pass
                 outputs = model(EPhi)
-                loss = criterion(position, outputs)
+                loss = criterion(outputs, position)
 
                 # Backward and optimize
                 loss.backward()
@@ -133,7 +134,7 @@ def train_model(dataloader, model, criterion, device, optimizer, num_epochs=25):
 
                 prof.step()
 
-        print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {running_loss/len(dataloader):.4f}')
+            print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {running_loss/len(dataloader):.4f}')
 
 def test_model(dataloader, model, criterion, device):
     model.eval()  # Set the model to evaluation mode
@@ -145,8 +146,8 @@ def test_model(dataloader, model, criterion, device):
             position = position.to(device)
             EPhi = EPhi.to(device)
 
-            outputs = model(position)
-            loss = criterion(torch.view_as_real(outputs), torch.view_as_real(EPhi))
+            outputs = model(EPhi)
+            loss = criterion(outputs, position)
 
             total_loss += loss.item() * position.size(0)
             total_samples += position.size(0)
@@ -154,7 +155,8 @@ def test_model(dataloader, model, criterion, device):
     average_loss = total_loss / total_samples
     print(f'Average Loss: {average_loss:.4f}')
 
-train_model(train_loader, model, criterion, device, optimizer, num_epochs=num_epochs)
+num_epochs = 1000  # Define the number of epochs for training
+train_model(train_loader, model, criterion, device, optimizer, num_epochs)
 test_model(test_loader, model, criterion, device)
 
 
