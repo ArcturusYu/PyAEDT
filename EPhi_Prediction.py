@@ -61,9 +61,11 @@ class rEPhiDataset:
 class ComplexConvNetwork(nn.Module):
     def __init__(self):
         super(ComplexConvNetwork, self).__init__()
-        self.conv1 = nn.Conv1d(in_channels=4, out_channels=64, kernel_size=3, padding=1)  # Initial 1D convolution layer
-        self.conv2 = nn.Conv1d(in_channels=64, out_channels=181, kernel_size=3, padding=1)  # Final 1D convolution layer
-        self.fc1 = nn.Linear(3 * 181, 362)  # Fully connected layer to map to the desired output size
+        self.conv1 = nn.Conv1d(in_channels=256, out_channels=181, kernel_size=3, padding=1)
+        self.conv2 = nn.Conv1d(in_channels=181, out_channels=64, kernel_size=3, padding=1)
+        self.fc1 = nn.Linear(2 * 181, 128)
+        self.fc2 = nn.Linear(128, 64)
+        self.fc3 = nn.Linear(64, 4)
         
     def forward(self, x):
         x = torch.view_as_real(x)  # Converts complex numbers to real, shape becomes (batch_size, 4, 2)
@@ -71,14 +73,11 @@ class ComplexConvNetwork(nn.Module):
 
         # Apply convolutional layers
         x = F.silu(self.conv1(x))
-        x = self.conv2(x)
+        x = F.silu(self.conv2(x))
+        x = F.silu(self.fc1(x))
+        x = F.silu(self.fc2(x))
+        x = self.fc3(x)
 
-        # Flatten and apply the fully connected layer
-        x = x.view(x.size(0), -1)
-        x = self.fc1(x)
-
-        # Assuming output needs to be complex again, reshaping and converting
-        x = torch.view_as_complex(x.view(x.size(0), -1, 2))  # Reshape and convert to complex
         return x
 
 
@@ -123,8 +122,8 @@ def train_model(dataloader, model, criterion, device, optimizer, num_epochs=25):
                 optimizer.zero_grad()
                 
                 # Forward pass
-                outputs = model(position)
-                loss = criterion(outputs.real, EPhi.real) + criterion(outputs.imag, EPhi.imag)
+                outputs = model(EPhi)
+                loss = criterion(position, outputs)
 
                 # Backward and optimize
                 loss.backward()
