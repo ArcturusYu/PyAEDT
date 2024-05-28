@@ -68,6 +68,8 @@ class ComplexConvNetwork(nn.Module):
         self.fc2 = nn.Linear(1024, 32)
         self.fc3 = nn.Linear(32, 362)
         self.fc01 = nn.Linear(4, 32)
+        self.fc02 = nn.Linear(32, 181)
+        self.fc03 = nn.Linear(181, 362)
         
     def forward(self, x):
         # x = torch.view_as_real(x)  # Converts complex numbers to real, shape becomes (batch_size, 181, 2)
@@ -76,9 +78,9 @@ class ComplexConvNetwork(nn.Module):
         # x = F.silu(self.conv1(x))
         # x = F.silu(self.conv2(x))
         # x = x.view(-1, self.num_flat_features(x))
-        x = F.relu(self.fc01(x))
-        # x = self.fc2(x)
-        x = self.fc3(x)
+        x = F.celu(self.fc01(x))
+        x = F.silu(self.fc02(x))
+        x = self.fc03(x)
         return x
 
     def num_flat_features(self, x):
@@ -157,7 +159,7 @@ def test_model(dataloader, model, criterion, device):
     average_loss = total_loss / total_samples
     print(f'Average Loss: {average_loss:.4f}')
 
-num_epochs = 100  # Define the number of epochs for training
+num_epochs = 50  # Define the number of epochs for training
 train_model(train_loader, model, criterion, device, optimizer, num_epochs)
 test_model(test_loader, model, criterion, device)
 
