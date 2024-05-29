@@ -3,7 +3,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import random_split, DataLoader
 import re
-import torch.profiler as profiler
+import random
+import AEP
 
 def file_to_dict(filename):
     data_dict = {}
@@ -111,34 +112,24 @@ optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
 
 def train_model(dataloader, model, criterion, device, optimizer, num_epochs):
     model.train()
-    with profiler.profile(
-    activities=[profiler.ProfilerActivity.CPU, profiler.ProfilerActivity.CUDA],
-    schedule=profiler.schedule(wait=1, warmup=1, active=3, repeat=2),
-    on_trace_ready=profiler.tensorboard_trace_handler('C:\\Users\\bacto\\Documents\\PyAEDT\\log\\train'),
-    record_shapes=True,
-    profile_memory=True,
-    with_stack=True
-) as prof:
-        for epoch in range(num_epochs):
-            running_loss = 0.0
-            for position, EPhi in dataloader:
-                position, EPhi = position.to(device), EPhi.to(device)
+    for epoch in range(num_epochs):
+        running_loss = 0.0
+        for position, EPhi in dataloader:
+            position, EPhi = position.to(device), EPhi.to(device)
 
-                optimizer.zero_grad()
-                
-                # Forward pass
-                outputs = model(position)
-                loss = criterion(outputs, torch.view_as_real(EPhi).view(-1, 362))
+            optimizer.zero_grad()
+            
+            # Forward pass
+            outputs = model(position)
+            loss = criterion(outputs, torch.view_as_real(EPhi).view(-1, 362))
 
-                # Backward and optimize
-                loss.backward()
-                optimizer.step()
+            # Backward and optimize
+            loss.backward()
+            optimizer.step()
 
-                running_loss += loss.item()
+            running_loss += loss.item()
 
-                prof.step()
-
-            print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {running_loss/len(dataloader):.4f}')
+        print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {running_loss/len(dataloader):.4f}')
 
 def test_model(dataloader, model, criterion, device):
     model.eval()  # Set the model to evaluation mode
@@ -163,4 +154,16 @@ num_epochs = 50  # Define the number of epochs for training
 train_model(train_loader, model, criterion, device, optimizer, num_epochs)
 test_model(test_loader, model, criterion, device)
 
+positionlist = [0]
+for i in range(17):
+    if not i == 0:
+        positionlist.append(positionlist[i-1]+(random.uniform(15,30)))
+rEPhi_sim = AEP.validateAEP(positionlist)
+print(rEPhi_sim.shape)
 
+distribution = torch.tensor(AEP.positionlist2positionDistribution(positionlist), dtype=torch.float).to(device)
+rEPhi_model = 0
+for i in range(17):
+    rEPhi_model += model(distribution[i])
+print(rEPhi_model.shape)
+AEPcriterion = criterion(rEPhi_model, rEPhi_sim)
