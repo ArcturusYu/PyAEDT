@@ -92,7 +92,7 @@ class ComplexConvNetwork(nn.Module):
         return num_features
     
 
-dataset = rEPhiDataset(file_path='F:\\pythontxtfile\\eEPhi_example.txt')
+dataset = rEPhiDataset(file_path='F:\\pythontxtfile\\eEPhi.txt')
 # Assuming dataset is a PyTorch Dataset object
 total_size = len(dataset)
 train_size = int(0.8 * total_size)  # 80% of the dataset
@@ -159,11 +159,16 @@ for i in range(17):
     if not i == 0:
         positionlist.append(positionlist[i-1]+(random.uniform(15,30)))
 rEPhi_sim = AEP.validateAEP(positionlist)
-print(rEPhi_sim.shape)
 
-distribution = torch.tensor(AEP.positionlist2positionDistribution(positionlist), dtype=torch.float).to(device)
-rEPhi_model = 0
-for i in range(17):
-    rEPhi_model += model(distribution[i])
-print(rEPhi_model.shape)
-AEPcriterion = criterion(rEPhi_model, rEPhi_sim)
+distribution = AEP.positionlist2positionDistribution(positionlist)
+
+rep = [0] * 181
+for value in rEPhi_sim.values():
+    rep += value
+rep = torch.view_as_real(torch.tensor(rep).to(device)).view(362)
+
+rEPhi_model = torch.tensor([0] * 362, dtype=float).to(device)
+for value in distribution.values():
+    rEPhi_model += model(torch.tensor(value).to(device))
+
+AEPcriterion = criterion(rEPhi_model, rep)
