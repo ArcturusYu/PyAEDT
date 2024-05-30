@@ -114,11 +114,11 @@ def generateAEP(epoch=1):
             positionlist, portnames = createVariation(hfss)
             hfss.analyze(cores=8)
             positionDistribution = positionlist2positionDistribution(positionlist)
+            rEPhiDic = {}
             for i in range(17):
                 ccs = hfss.modeler.create_coordinate_system(origin=[positionlist[i], 0, 0], reference_cs='Global')
                 infinite_sphere = hfss.insert_infinite_sphere(name='iis',x_start=-90, x_stop=90, x_step=1, y_start=0, y_stop=0, y_step=0, custom_coordinate_system=ccs.name)
                 data = hfss.get_antenna_ffd_solution_data('10GHz',sphere=infinite_sphere.name)
-                rEPhiDic = {}
                 # rEPhi, rETheta, rETotal, Theta, Phi, nPhi, nTheta， Pincident, RealizedGain, RealizedGain_Total, RealizedGain_dB, RealizedGain_Theta, RealizedGain_Phi, Element_Location
                 rEPhiDic[positionDistribution[i]] = pyaedt.modules.solutions.FfdSolutionData(frequencies=data.frequencies, eep_files=data.eep_files)._raw_data[f'{portnames[i]}_1']["rEPhi"]
                 dict_to_file(rEPhiDic,'F:\\pythontxtfile\\eEPhi.txt')
@@ -136,16 +136,13 @@ def validateAEP(positionlist=[0]):
         setup = hfss.create_setup(name='a10',frequency='10GHz')
         setup.update()
 
-        positionlist, portnames = createVariation(hfss)
+        createVariation(hfss)
         hfss.analyze(cores=8)
-        positionDistribution = positionlist2positionDistribution(positionlist)
-        for i in range(17):
-            ccs = hfss.modeler.create_coordinate_system(origin=[positionlist[i], 0, 0], reference_cs='Global')
-            infinite_sphere = hfss.insert_infinite_sphere(name='iis',x_start=-90, x_stop=90, x_step=1, y_start=0, y_stop=0, y_step=0, custom_coordinate_system=ccs.name)
-            data = hfss.get_antenna_ffd_solution_data('10GHz',sphere=infinite_sphere.name)
-            rEPhiDic = {}
-            # rEPhi, rETheta, rETotal, Theta, Phi, nPhi, nTheta， Pincident, RealizedGain, RealizedGain_Total, RealizedGain_dB, RealizedGain_Theta, RealizedGain_Phi, Element_Location
-            rEPhiDic[positionDistribution[i]] = pyaedt.modules.solutions.FfdSolutionData(frequencies=data.frequencies, eep_files=data.eep_files)._raw_data[f'{portnames[i]}_1']["rEPhi"]
-            infinite_sphere.delete()
+        ccs = hfss.modeler.create_coordinate_system(origin=[positionlist[i], 0, 0], reference_cs='Global')
+        infinite_sphere = hfss.insert_infinite_sphere(name='iis',x_start=-90, x_stop=90, x_step=1, y_start=0, y_stop=0, y_step=0, custom_coordinate_system=ccs.name)
+        data = hfss.get_antenna_ffd_solution_data('10GHz',sphere=infinite_sphere.name)
+        # rEPhi, rETheta, rETotal, Theta, Phi, nPhi, nTheta， Pincident, RealizedGain, RealizedGain_Total, RealizedGain_dB, RealizedGain_Theta, RealizedGain_Phi, Element_Location
+        rEPhiDic = pyaedt.modules.solutions.FfdSolutionData(frequencies=data.frequencies, eep_files=data.eep_files)._raw_data
+        infinite_sphere.delete()
     return rEPhiDic
 

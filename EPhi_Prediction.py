@@ -164,7 +164,7 @@ distribution = AEP.positionlist2positionDistribution(positionlist)
 
 rep = [0] * 181
 for value in rEPhi_sim.values():
-    rep += value
+    rep += value['rEPhi']
 rep = torch.view_as_real(torch.tensor(rep).to(device)).view(362)
 
 rEPhi_model = torch.tensor([0] * 362, dtype=float).to(device)
