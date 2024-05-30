@@ -138,8 +138,7 @@ def validateAEP(positionlist=[0]):
 
         createVariation(hfss)
         hfss.analyze(cores=8)
-        ccs = hfss.modeler.create_coordinate_system(origin=[positionlist[i], 0, 0], reference_cs='Global')
-        infinite_sphere = hfss.insert_infinite_sphere(name='iis',x_start=-90, x_stop=90, x_step=1, y_start=0, y_stop=0, y_step=0, custom_coordinate_system=ccs.name)
+        infinite_sphere = hfss.insert_infinite_sphere(name='iis',x_start=-90, x_stop=90, x_step=1, y_start=0, y_stop=0, y_step=0)
         data = hfss.get_antenna_ffd_solution_data('10GHz',sphere=infinite_sphere.name)
         # rEPhi, rETheta, rETotal, Theta, Phi, nPhi, nTheta， Pincident, RealizedGain, RealizedGain_Total, RealizedGain_dB, RealizedGain_Theta, RealizedGain_Phi, Element_Location
         rEPhiDic = pyaedt.modules.solutions.FfdSolutionData(frequencies=data.frequencies, eep_files=data.eep_files)._raw_data

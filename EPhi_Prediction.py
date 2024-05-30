@@ -9,7 +9,7 @@ import AEP
 def file_to_dict(filename):
     data_dict = {}
     # Regex to match complex numbers
-    complex_num_pattern = re.compile(r'[-+]?\d*\.?\d+e?[-+]?\d*j')
+    complex_num_pattern = re.compile(r'[-\s]\d\.\d+.........[^\s]+[\+\-]\d+j')
 
     with open(filename, 'r') as file:
         current_key = None
@@ -162,13 +162,13 @@ rEPhi_sim = AEP.validateAEP(positionlist)
 
 distribution = AEP.positionlist2positionDistribution(positionlist)
 
-rep = [0] * 181
+rep = [complex(0,0)] * 181
 for value in rEPhi_sim.values():
     rep += value['rEPhi']
 rep = torch.view_as_real(torch.tensor(rep).to(device)).view(362)
 
-rEPhi_model = torch.tensor([0] * 362, dtype=float).to(device)
+rEPhi_model = torch.tensor([0] * 362, dtype=torch.float).to(device)
 for value in distribution.values():
-    rEPhi_model += model(torch.tensor(value).to(device))
+    rEPhi_model += model(torch.tensor(value, dtype=torch.float).to(device))
 
 AEPcriterion = criterion(rEPhi_model, rep)
