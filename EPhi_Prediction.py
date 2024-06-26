@@ -9,7 +9,7 @@ import AEP
 def file_to_dict(filename):
     data_dict = {}
     # Regex to match complex numbers
-    complex_num_pattern = re.compile(r'[-\s]\d\.\d+.........[^\s]+[\+\-]\d+j')
+    complex_num_pattern = re.compile(r'-?\d+\.\d+[e\-\+\d\s]+[+-]\d+\.[e\-\+\d\s]+j')
 
     with open(filename, 'r') as file:
         current_key = None
@@ -23,15 +23,14 @@ def file_to_dict(filename):
                 current_key = tuple(map(float, re.findall(r"[-+]?\d*\.\d+|\d+", key_part)))
                 values = []
                 # Process initial line of complex numbers
-                if complex_numbers.strip():
+                if complex_numbers:
                     complex_matches = complex_num_pattern.findall(complex_numbers)
-                    values.extend([complex(num) for num in complex_matches])
+                    values.extend([complex(num.replace(' ','')) for num in complex_matches])
             else:
                 # Continue collecting values
-                line = line.strip().rstrip(']')
-                if line.strip():  # Ensure it's not empty
+                if line:  # Ensure it's not empty
                     complex_matches = complex_num_pattern.findall(line)
-                    values.extend([complex(num) for num in complex_matches])
+                    values.extend([complex(num.replace(' ','')) for num in complex_matches])
 
         # Add the last key-value pair
         if current_key is not None:
@@ -52,6 +51,7 @@ class rEPhiDataset:
     
     def __getitem__(self, idx):
         position = self.positions[idx]
+        position = position.view(1, -1)
         EPhi = self.EPhi[idx]
         if self.transform:
             EPhi = self.transform(EPhi)
@@ -59,37 +59,37 @@ class rEPhiDataset:
             position = self.target_transform(position)
         return position, EPhi
 
-class ComplexConvNetwork(nn.Module):
+class ImprovedNetwork(nn.Module):
     def __init__(self):
-        super(ComplexConvNetwork, self).__init__()
-        self.conv1 = nn.Conv1d(in_channels=1, out_channels=8, kernel_size=3, padding=1)
-        self.conv2 = nn.Conv1d(in_channels=8, out_channels=16, kernel_size=3, padding=1)
-        # flatten the tensor
-        self.fc1 = nn.Linear(181 * 16, 1024)
-        self.fc2 = nn.Linear(1024, 32)
-        self.fc3 = nn.Linear(32, 362)
-        self.fc01 = nn.Linear(4, 32)
-        self.fc02 = nn.Linear(32, 181)
-        self.fc03 = nn.Linear(181, 362)
+        super(ImprovedNetwork, self).__init__()
+        conv1=8
+        conv2=64
+        conv3=512
+        self.relu=nn.ReLU()
+        self.conv1=nn.Conv1d(1,conv1,3,padding=1)
+        self.conv2=nn.Conv1d(conv1,conv2,3,padding=1)
+        self.conv3=nn.Conv1d(conv2,conv3,3,padding=1)
+        self.fc01 = nn.Linear(4*conv3, 362)
+        
+        self.batch_norm1 = nn.BatchNorm1d(conv1)
+        self.batch_norm2 = nn.BatchNorm1d(conv2)
+        self.ConvReluBatchNorm1 = nn.Sequential(
+            self.conv1, self.relu, self.batch_norm1
+            )
+        
+        # self.dropout = nn.Dropout(p=0.5)
         
     def forward(self, x):
-        # x = torch.view_as_real(x)  # Converts complex numbers to real, shape becomes (batch_size, 181, 2)
-        # x = x.permute(0, 2, 1)
-        # # Apply convolutional layers
-        # x = F.silu(self.conv1(x))
-        # x = F.silu(self.conv2(x))
-        # x = x.view(-1, self.num_flat_features(x))
-        x = F.celu(self.fc01(x))
-        x = F.silu(self.fc02(x))
-        x = self.fc03(x)
+        x = self.conv1(x)
+        x = self.relu(x)
+        x = self.batch_norm1(x)
+        x = self.conv2(x)
+        x = self.relu(x)
+        x = self.batch_norm2(x)
+        x = x.view(-1, 4*128)
+        x = self.fc01(x)
+        # x = self.dropout(x)
         return x
-
-    def num_flat_features(self, x):
-        size = x.size()[1:]  # 除去批处理维度的其他所有维度
-        num_features = 1
-        for s in size:
-            num_features *= s
-        return num_features
     
 
 dataset = rEPhiDataset(file_path='F:\\pythontxtfile\\eEPhi.txt')
@@ -100,15 +100,15 @@ test_size = total_size - train_size  # Remaining 20%
 print(f'Train size: {train_size}, Test size: {test_size}')
 # Splitting the dataset
 train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
-train_loader = DataLoader(train_dataset, batch_size=128, shuffle=True)
-test_loader = DataLoader(test_dataset, batch_size=128, shuffle=False)
+train_loader = DataLoader(train_dataset, batch_size=256, shuffle=True, pin_memory=True)
+test_loader = DataLoader(test_dataset, batch_size=256, shuffle=False)
 
 # Instantiate the model, loss function, and optimizer
 
 criterion = torch.nn.MSELoss()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = ComplexConvNetwork().to(device)
-optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+model = ImprovedNetwork().to(device)
+optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
 def train_model(dataloader, model, criterion, device, optimizer, num_epochs):
     model.train()
@@ -118,7 +118,6 @@ def train_model(dataloader, model, criterion, device, optimizer, num_epochs):
             position, EPhi = position.to(device), EPhi.to(device)
 
             optimizer.zero_grad()
-            
             # Forward pass
             outputs = model(position)
             loss = criterion(outputs, torch.view_as_real(EPhi).view(-1, 362))
@@ -154,21 +153,21 @@ num_epochs = 50  # Define the number of epochs for training
 train_model(train_loader, model, criterion, device, optimizer, num_epochs)
 test_model(test_loader, model, criterion, device)
 
-positionlist = [0]
-for i in range(17):
-    if not i == 0:
-        positionlist.append(positionlist[i-1]+(random.uniform(15,30)))
-rEPhi_sim = AEP.validateAEP(positionlist)
+# positionlist = [0]
+# for i in range(17):
+#     if not i == 0:
+#         positionlist.append(positionlist[i-1]+(random.uniform(15,30)))
+# rEPhi_sim = AEP.validateAEP(positionlist)
 
-distribution = AEP.positionlist2positionDistribution(positionlist)
+# distribution = AEP.positionlist2positionDistribution(positionlist)
 
-rep = [complex(0,0)] * 181
-for value in rEPhi_sim.values():
-    rep += value['rEPhi']
-rep = torch.view_as_real(torch.tensor(rep).to(device)).view(362)
+# rep = [complex(0,0)] * 181
+# for value in rEPhi_sim.values():
+#     rep += value['rEPhi']
+# rep = torch.view_as_real(torch.tensor(rep).to(device)).view(362)
 
-rEPhi_model = torch.tensor([0] * 362, dtype=torch.float).to(device)
-for value in distribution.values():
-    rEPhi_model += model(torch.tensor(value, dtype=torch.float).to(device))
+# rEPhi_model = torch.tensor([0] * 362, dtype=torch.float).to(device)
+# for value in distribution.values():
+#     rEPhi_model += model(torch.tensor(value, dtype=torch.float).to(device))
 
-AEPcriterion = criterion(rEPhi_model, rep)
+# AEPcriterion = criterion(rEPhi_model, rep)
