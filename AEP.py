@@ -1,5 +1,6 @@
 import random
 import pyaedt
+import torch
 
 def dict_to_file(dict_data, file_name):
     """
@@ -127,7 +128,7 @@ def generateAEP(epoch=1):
             if open('C:\\Users\\bacto\\Documents\\PyAEDT\\stop.txt').read() == '1':
                 break
 
-def validateAEP(positionlist=[0]):
+def validateAEP(positionlist):
     with pyaedt.Desktop(specified_version='241',non_graphical=True):
         hfss = pyaedt.Hfss(projectname='17elements',designname='17elements',solution_type='Modal')
         hfss.logger.disabled = True
@@ -136,7 +137,7 @@ def validateAEP(positionlist=[0]):
         setup = hfss.create_setup(name='a10',frequency='10GHz')
         setup.update()
 
-        createVariation(hfss)
+        createVariation(hfss,positionlist)
         hfss.analyze(cores=8)
         infinite_sphere = hfss.insert_infinite_sphere(name='iis',x_start=-90, x_stop=90, x_step=1, y_start=0, y_stop=0, y_step=0)
         data = hfss.get_antenna_ffd_solution_data('10GHz',sphere=infinite_sphere.name)
