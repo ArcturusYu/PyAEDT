@@ -277,7 +277,7 @@ train_earlystop(model, criterion, optimizer, num_epochs=5000, patience=5)
 #         positionlist.append(positionlist[i] + random.uniform(15, 30))
 #     return positionlist
 
-def rEPhiSynthesis(positionlist, rEPhi = torch.zeros(181, dtype=torch.cfloat).to(device)):
+def rEPhiSynthesis(positionlist, rEPhi = None):
     '''for rEPhi_model, input positionlist only; for rEPhi_sim, input positionlist and rEPhiDic'''
     distribution = positionlist2positionDistribution(positionlist)
 
@@ -285,16 +285,9 @@ def rEPhiSynthesis(positionlist, rEPhi = torch.zeros(181, dtype=torch.cfloat).to
     theta = torch.arange(-90, 91, dtype=torch.int, device=device) / 180 * np.pi
     sin_theta = torch.sin(theta)
 
-    #if inputting rEPhiDic, calculate rEPhi_sim
-    if any(rEPhi):
-        rEPhi_sim = torch.zeros(181, dtype=torch.cfloat).to(device)
-        for i, value in enumerate(rEPhi.values()):
-            phase_shift = torch.exp(1j * beta * positionlist[i] * sin_theta)
-            rEPhi_sim += phase_shift * torch.tensor(value['rEPhi']).to(device)
-        rEPhi_sim = torch.abs(rEPhi_sim).to(device)
-        return rEPhi_sim
-
-    else:
+    # Initialize rEPhi if it's not provided
+    if rEPhi is None:
+        rEPhi = torch.zeros(181, dtype=torch.cfloat).to(device)
         for i in range(0, 16):
             rEPhi_d = model(torch.tensor(distribution[i], dtype=torch.float).to(device)).view(181, 2)
             phase_shift = torch.exp(1j * beta * positionlist[i] * sin_theta)
@@ -302,12 +295,20 @@ def rEPhiSynthesis(positionlist, rEPhi = torch.zeros(181, dtype=torch.cfloat).to
         #turn rEPhi_model into magnitude E field
         rEPhi = torch.abs(rEPhi).detach().cpu().numpy()
         return rEPhi
+    #if inputting rEPhiDic, calculate rEPhi_sim
+    else:
+        rEPhi_sim = torch.zeros(181, dtype=torch.cfloat).to(device)
+        for i, value in enumerate(rEPhi.values()):
+            phase_shift = torch.exp(1j * beta * positionlist[i] * sin_theta)
+            rEPhi_sim += phase_shift * torch.tensor(value['rEPhi']).to(device)
+        rEPhi_sim = torch.abs(rEPhi_sim).detach().cpu().numpy()
+        return rEPhi_sim
 
 def objective_function(positiondelta):
     #把positiondelta转换为positionlist
     positionlist = torch.cumsum(torch.tensor([0] + positiondelta.tolist()), dim=0).to(device)
     
-    rEPhiSynthesis(positionlist)
+    rEPhi_model = rEPhiSynthesis(positionlist)
     
     # 计算一阶导数
     gradient = np.diff(rEPhi_model)
@@ -334,7 +335,7 @@ lb = [15]*16
 ub = [30]*16
 
 # 使用PSO优化
-opt_positionlistdelta, opt_value = pso(objective_function, lb, ub, swarmsize=100, maxiter=2)
+opt_positionlistdelta, opt_value = pso(objective_function, lb, ub, swarmsize=100, maxiter=100)
 
 #还原positionlist
 positionlist = [0]
@@ -356,12 +357,10 @@ rEPhi_model = rEPhiSynthesis(positionlist)
 
 # x = value['Theta']
 x = [n for n in range(-90,91)]
-ymodel = rEPhi_model
-ysim = rEPhi_sim.cpu().detach().numpy()
 
 # 将 ymodel 和 ysim 转换为 dB 单位
-ymodel_db = 20 * np.log10(np.abs(ymodel))
-ysim_db = 20 * np.log10(np.abs(ysim))
+ymodel_db = 20 * np.log10(np.abs(rEPhi_model))
+ysim_db = 20 * np.log10(np.abs(rEPhi_sim))
 
 # 绘制图表
 fig, ax = plt.subplots()
