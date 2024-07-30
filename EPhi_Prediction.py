@@ -271,86 +271,87 @@ def test_model(dataloader, model, criterion, device):
 train_earlystop(model, criterion, optimizer, num_epochs=5000, patience=5)
 # 模型训练完成 #########################
 
-# def generate_positionlist():
-#     positionlist = [0]
-#     for i in range(0, 16):
-#         positionlist.append(positionlist[i] + random.uniform(15, 30))
-#     return positionlist
+# from scipy.interpolate import CubicSpline
 
-def rEPhiSynthesis(positionlist, rEPhi = None):
-    '''for rEPhi_model, input positionlist only; for rEPhi_sim, input positionlist and rEPhiDic'''
+def rEPhiSynthesis(positionlist, rEPhi=None, complexExitation=torch.ones(17).to(device)):
+    '''for rEPhi_model, input positionlist(include first 0) only; for rEPhi_sim, input positionlist and rEPhiDic'''
     distribution = positionlist2positionDistribution(positionlist)
 
     beta = 2 * np.pi / 0.03
     theta = torch.arange(-90, 91, dtype=torch.int, device=device) / 180 * np.pi
     sin_theta = torch.sin(theta)
 
-    # Initialize rEPhi if it's not provided
+    num_positions = len(positionlist)
+    
     if rEPhi is None:
-        rEPhi = torch.zeros(181, dtype=torch.cfloat).to(device)
-        for i in range(0, 16):
-            rEPhi_d = model(torch.tensor(distribution[i], dtype=torch.float).to(device)).view(181, 2)
+        rEPhi = torch.zeros(181, dtype=torch.cfloat, device=device)
+        for i in range(num_positions):
+            dist_tensor = torch.tensor(distribution[i], dtype=torch.float, device=device)
+            rEPhi_d = model(dist_tensor).view(181, 2)
+            rEPhi_d = torch.view_as_complex(rEPhi_d)
             phase_shift = torch.exp(1j * beta * positionlist[i] * sin_theta)
-            rEPhi += phase_shift * torch.view_as_complex(rEPhi_d)
-        #turn rEPhi_model into magnitude E field
-        rEPhi = torch.abs(rEPhi).detach().cpu().numpy()
-        return rEPhi
-    #if inputting rEPhiDic, calculate rEPhi_sim
+            rEPhi += phase_shift * rEPhi_d * complexExitation[i]
+        return torch.abs(rEPhi)
     else:
-        rEPhi_sim = torch.zeros(181, dtype=torch.cfloat).to(device)
-        for i, value in enumerate(rEPhi.values()):
+        rEPhi_sim = torch.zeros(181, dtype=torch.cfloat, device=device)
+        rEPhi_values = list(rEPhi.values())  # 将 dict 转换为 list，以便使用索引访问
+        for i in range(num_positions):
+            value = rEPhi_values[i]
             phase_shift = torch.exp(1j * beta * positionlist[i] * sin_theta)
-            rEPhi_sim += phase_shift * torch.tensor(value['rEPhi']).to(device)
-        rEPhi_sim = torch.abs(rEPhi_sim).detach().cpu().numpy()
-        return rEPhi_sim
+            rEPhi_sim += phase_shift * torch.tensor(value['rEPhi'], device=device) * complexExitation[i]
+        return torch.abs(rEPhi_sim)
 
-def objective_function(positiondelta):
-    #把positiondelta转换为positionlist
-    positionlist = torch.cumsum(torch.tensor([0] + positiondelta.tolist()), dim=0).to(device)
+def objective_function(value):
+    positiondelta = torch.tensor(value[0:16], device=device)
+    amp = torch.tensor(value[16:33], device=device)
+    phi = torch.tensor(value[33:], device=device)
+    complexExitation = amp * torch.exp(1j * phi)  # 张量乘法操作
+
+    # 还原positionlist
+    positionlist = torch.cumsum(torch.cat([torch.tensor([0.], device=device), positiondelta]), dim=0)
     
-    rEPhi_model = rEPhiSynthesis(positionlist)
-    
-    # 计算一阶导数
-    gradient = np.diff(rEPhi_model)
+    rEPhi_model = rEPhiSynthesis(positionlist, None, complexExitation)
 
-    # 找到一阶导数为零的点（极值点）
-    extrema_indices = np.where(np.diff(np.sign(gradient)))[0] + 1
+    # 查找极值点索引
+    diff = rEPhi_model[1:] - rEPhi_model[:-1]
+    extrema_indices = ((diff[:-1] > 0) & (diff[1:] < 0)).nonzero(as_tuple=True)[0] + 1
 
-    # 找到所有极值的值
-    local_maxima_values = rEPhi_model[extrema_indices]
+    # 获取极值点的值
+    extrema_values = rEPhi_model[extrema_indices]
 
-    # 找到最大极值与第二大极值
-    if len(local_maxima_values) >= 2:
-        max_value = np.max(local_maxima_values)
-        second_max_value = np.partition(local_maxima_values, -2)[-2]
-        difference = max_value - second_max_value
+    # 找到最大的两个极值
+    if extrema_values.numel() >= 2:
+        top2_values = torch.topk(extrema_values, 2).values
+        max_extrema_diff = top2_values[0] - top2_values[1]
+        return -(max_extrema_diff + top2_values[0]).item()
     else:
-        difference = None  # 如果极值点少于两个，则无法计算差值
-    
-    # 返回目标值（注意这里取负，因为我们要最大化这个差值）
-    return -difference
+        raise ValueError("极值点不足两个，无法计算差值")
 
-# 定义变量边界
-lb = [15]*16
-ub = [30]*16
+# 16 positiondelta + 17 complexExitation
+lb = [15]*16+[0.7]*17+[0]*17
+ub = [30]*16+[1]*17+[np.pi/2]*17
 
 # 使用PSO优化
-opt_positionlistdelta, opt_value = pso(objective_function, lb, ub, swarmsize=100, maxiter=100)
+opt_pd_complexE, opt_value = pso(objective_function, lb, ub, swarmsize=100, maxiter=100)
 
 #还原positionlist
 positionlist = [0]
-for i in range(0, 16):
-    positionlist.append(positionlist[i] + opt_positionlistdelta[i])
+for i in range(16):
+    positionlist.append(positionlist[i] + opt_pd_complexE[i])
 
+amp=torch.tensor(opt_pd_complexE[16:33]).to(device)
+phi=torch.tensor(opt_pd_complexE[33:]).to(device)
+complexExitation = (amp * torch.exp(1j*phi))#张量操作
 print('优化后的 positionlist:', positionlist)
+print('优化后的 complexExitation:', complexExitation)
+print('优化的amp', torch.abs(complexExitation))
 print('优化后的目标值:', -opt_value)
 
 # 用HFSS验证，画图 #################
-rEPhiDic = AEP.validateAEP(positionlist)
+# rEPhiDic = AEP.validateAEP(positionlist)
 
-rEPhi_sim = rEPhiSynthesis(positionlist, rEPhiDic)
-
-rEPhi_model = rEPhiSynthesis(positionlist)
+# rEPhi_sim = rEPhiSynthesis(positionlist, rEPhiDic, complexExitation)
+rEPhi_model = rEPhiSynthesis(positionlist, None, complexExitation).detach().cpu().numpy()
 
 # AEPcriterion = criterion(rEPhi_model, rEPhi_sim)
 # print(f'AEPcriterion: {AEPcriterion}')
@@ -360,12 +361,12 @@ x = [n for n in range(-90,91)]
 
 # 将 ymodel 和 ysim 转换为 dB 单位
 ymodel_db = 20 * np.log10(np.abs(rEPhi_model))
-ysim_db = 20 * np.log10(np.abs(rEPhi_sim))
+# ysim_db = 20 * np.log10(np.abs(rEPhi_sim))
 
 # 绘制图表
 fig, ax = plt.subplots()
 ax.plot(x, ymodel_db, label='Model (dB)')
-ax.plot(x, ysim_db, label='Sim (dB)')
+# ax.plot(x, ysim_db, label='Sim (dB)')
 ax.set_xlabel('Theta')
 ax.set_ylabel('Magnitude (dB)')
 ax.legend()
