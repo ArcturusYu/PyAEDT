@@ -163,6 +163,48 @@ class DeepFcNetwork(nn.Module):
         x = x.view(-1, 362)
         return x
     
+class DeepSeparableConvNetwork(nn.Module):
+    def __init__(self):
+        super(DeepSeparableConvNetwork, self).__init__()
+        # Assuming input size is (2, 2) with 4 channels
+        self.depthwise_conv1 = nn.Conv2d(in_channels=4, out_channels=4, kernel_size=3, padding=1, groups=4)
+        self.pointwise_conv1 = nn.Conv2d(in_channels=4, out_channels=32, kernel_size=1)
+        
+        self.depthwise_conv2 = nn.Conv2d(in_channels=32, out_channels=32, kernel_size=3, padding=1, groups=32)
+        self.pointwise_conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=1)
+        
+        self.depthwise_conv3 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, padding=1, groups=64)
+        self.pointwise_conv3 = nn.Conv2d(in_channels=64, out_channels=128, kernel_size=1)
+        
+        self.depthwise_conv4 = nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, padding=1, groups=128)
+        self.pointwise_conv4 = nn.Conv2d(in_channels=128, out_channels=256, kernel_size=1)
+        
+        self.depthwise_conv5 = nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=1, groups=256)
+        self.pointwise_conv5 = nn.Conv2d(in_channels=256, out_channels=128, kernel_size=1)
+        
+        self.depthwise_conv6 = nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, padding=1, groups=128)
+        self.pointwise_conv6 = nn.Conv2d(in_channels=128, out_channels=64, kernel_size=1)
+        
+        self.depthwise_conv7 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, padding=1, groups=64)
+        self.pointwise_conv7 = nn.Conv2d(in_channels=64, out_channels=362, kernel_size=1)
+        
+        self.fc = nn.Linear(362*2*2, 362)  # Flatten and reduce to 362 features
+
+    def forward(self, x):
+        x = x.view(-1, 4, 2, 2)  # Reshape to (batch_size, channels, height, width)
+        
+        x = F.relu(self.pointwise_conv1(self.depthwise_conv1(x)))
+        x = F.relu(self.pointwise_conv2(self.depthwise_conv2(x)))
+        x = F.relu(self.pointwise_conv3(self.depthwise_conv3(x)))
+        x = F.relu(self.pointwise_conv4(self.depthwise_conv4(x)))
+        x = F.relu(self.pointwise_conv5(self.depthwise_conv5(x)))
+        x = F.relu(self.pointwise_conv6(self.depthwise_conv6(x)))
+        x = self.pointwise_conv7(self.depthwise_conv7(x))
+        
+        x = x.view(-1, 362*2*2)  # Flatten before the final FC layer
+        x = self.fc(x)  # Final fully connected layer
+        return x
+
 dataset = rEPhiDataset(file_path='F:\\pythontxtfile\\eEPhi.txt')
 # Assuming dataset is a PyTorch Dataset object
 total_size = len(dataset)
@@ -178,7 +220,7 @@ test_loader = DataLoader(test_dataset, batch_size=256, shuffle=False)
 
 criterion = torch.nn.MSELoss()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = DeepFcNetwork().to(device)
+model = DeepSeparableConvNetwork().to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
 def train_model(dataloader, model, criterion, device, optimizer, num_epochs):
@@ -271,103 +313,165 @@ def test_model(dataloader, model, criterion, device):
 train_earlystop(model, criterion, optimizer, num_epochs=5000, patience=5)
 # 模型训练完成 #########################
 
-# from scipy.interpolate import CubicSpline
+# def rEPhiSynthesis(positionlist, rEPhi=None, complexExitation=torch.ones(17).to(device)):
+#     '''for rEPhi_model, input positionlist(include first 0) only; for rEPhi_sim, input positionlist and rEPhiDic'''
+#     distribution = positionlist2positionDistribution(positionlist)
 
-def rEPhiSynthesis(positionlist, rEPhi=None, complexExitation=torch.ones(17).to(device)):
-    '''for rEPhi_model, input positionlist(include first 0) only; for rEPhi_sim, input positionlist and rEPhiDic'''
-    distribution = positionlist2positionDistribution(positionlist)
+#     beta = 2 * np.pi / 0.03
+#     theta = torch.arange(-90, 91, dtype=torch.int, device=device) / 180 * np.pi
+#     sin_theta = torch.sin(theta)
 
-    beta = 2 * np.pi / 0.03
-    theta = torch.arange(-90, 91, dtype=torch.int, device=device) / 180 * np.pi
-    sin_theta = torch.sin(theta)
-
-    num_positions = len(positionlist)
+#     num_positions = len(positionlist)
     
-    if rEPhi is None:
-        rEPhi = torch.zeros(181, dtype=torch.cfloat, device=device)
-        for i in range(num_positions):
-            dist_tensor = torch.tensor(distribution[i], dtype=torch.float, device=device)
-            rEPhi_d = model(dist_tensor).view(181, 2)
-            rEPhi_d = torch.view_as_complex(rEPhi_d)
-            phase_shift = torch.exp(1j * beta * positionlist[i] * sin_theta)
-            rEPhi += phase_shift * rEPhi_d * complexExitation[i]
-        return torch.abs(rEPhi)
-    else:
-        rEPhi_sim = torch.zeros(181, dtype=torch.cfloat, device=device)
-        rEPhi_values = list(rEPhi.values())  # 将 dict 转换为 list，以便使用索引访问
-        for i in range(num_positions):
-            value = rEPhi_values[i]
-            phase_shift = torch.exp(1j * beta * positionlist[i] * sin_theta)
-            rEPhi_sim += phase_shift * torch.tensor(value['rEPhi'], device=device) * complexExitation[i]
-        return torch.abs(rEPhi_sim)
+#     if rEPhi is None:
+#         rEPhi = torch.zeros(181, dtype=torch.cfloat, device=device)
+#         for i in range(num_positions):
+#             dist_tensor = torch.tensor(distribution[i], dtype=torch.float, device=device)
+#             rEPhi_d = model(dist_tensor).view(181, 2)
+#             rEPhi_d = torch.view_as_complex(rEPhi_d)
+#             phase_shift = torch.exp(1j * beta * positionlist[i] * sin_theta)
+#             rEPhi += phase_shift * rEPhi_d * complexExitation[i]
+#         return torch.abs(rEPhi)
+#     else:
+#         rEPhi_sim = torch.zeros(181, dtype=torch.cfloat, device=device)
+#         rEPhi_values = list(rEPhi.values())  # 将 dict 转换为 list，以便使用索引访问
+#         for i in range(num_positions):
+#             value = rEPhi_values[i]
+#             phase_shift = torch.exp(1j * beta * positionlist[i] * sin_theta)
+#             rEPhi_sim += phase_shift * torch.tensor(value['rEPhi'], device=device) * complexExitation[i]
+#         return torch.abs(rEPhi_sim)
 
-def objective_function(value):
-    positiondelta = torch.tensor(value[0:16], device=device)
-    amp = torch.tensor(value[16:33], device=device)
-    phi = torch.tensor(value[33:], device=device)
-    complexExitation = amp * torch.exp(1j * phi)  # 张量乘法操作
+# def objective_function(value):
+#     positiondelta = torch.tensor(value[0:16], device=device)
+#     amp = torch.tensor(value[16:33], device=device)
+#     phi = torch.tensor(value[33:], device=device)
+#     complexExitation = amp * torch.exp(1j * phi)  # 张量乘法操作
 
-    # 还原positionlist
-    positionlist = torch.cumsum(torch.cat([torch.tensor([0.], device=device), positiondelta]), dim=0)
+#     # 还原positionlist
+#     positionlist = torch.cumsum(torch.cat([torch.tensor([0.], device=device), positiondelta]), dim=0)
     
-    rEPhi_model = rEPhiSynthesis(positionlist, None, complexExitation)
+#     rEPhi_model = rEPhiSynthesis(positionlist, None, complexExitation)
 
-    # 查找极值点索引
-    diff = rEPhi_model[1:] - rEPhi_model[:-1]
-    extrema_indices = ((diff[:-1] > 0) & (diff[1:] < 0)).nonzero(as_tuple=True)[0] + 1
+#     # 查找极值点索引
+#     diff = rEPhi_model[1:] - rEPhi_model[:-1]
+#     extrema_indices = ((diff[:-1] > 0) & (diff[1:] < 0)).nonzero(as_tuple=True)[0] + 1
 
-    # 获取极值点的值
-    extrema_values = rEPhi_model[extrema_indices]
+#     # 获取极值点的值
+#     extrema_values = rEPhi_model[extrema_indices]
 
-    # 找到最大的两个极值
-    if extrema_values.numel() >= 2:
-        top2_values = torch.topk(extrema_values, 2).values
-        max_extrema_diff = top2_values[0] - top2_values[1]
-        return -(max_extrema_diff + top2_values[0]).item()
-    else:
-        raise ValueError("极值点不足两个，无法计算差值")
+#     # 找到最大的两个极值
+#     if extrema_values.numel() >= 2:
+#         top2_values = torch.topk(extrema_values, 2).values
+#         max_extrema_diff = top2_values[0] - top2_values[1]
+#         return -(max_extrema_diff).item()
+#     else:
+#         raise ValueError("极值点不足两个，无法计算差值")
 
-# 16 positiondelta + 17 complexExitation
-lb = [15]*16+[0.7]*17+[0]*17
-ub = [30]*16+[1]*17+[np.pi/2]*17
+# def initialize_population(pop_size, lb, ub):
+#     population = []
+#     for _ in range(pop_size):
+#         individual = []
+#         for l, u in zip(lb, ub):
+#             individual.append(np.random.uniform(l, u))
+#         population.append(individual)
+#     return population
 
-# 使用PSO优化
-opt_pd_complexE, opt_value = pso(objective_function, lb, ub, swarmsize=100, maxiter=100)
+# def select_parents(population, fitnesses, num_parents):
+#     fitnesses = np.array(fitnesses)
+#     idx = np.argsort(fitnesses)[:num_parents]
+#     return [population[i] for i in idx]
 
-#还原positionlist
-positionlist = [0]
-for i in range(16):
-    positionlist.append(positionlist[i] + opt_pd_complexE[i])
+# def crossover(parents, crossover_rate):
+#     offspring = []
+#     num_offspring = len(parents) // 2 * 2  # 保证偶数
+#     for i in range(0, num_offspring, 2):
+#         if np.random.rand() < crossover_rate:
+#             crossover_point = np.random.randint(1, len(parents[0]))
+#             offspring1 = parents[i][:crossover_point] + parents[i+1][crossover_point:]
+#             offspring2 = parents[i+1][:crossover_point] + parents[i][crossover_point:]
+#             offspring.extend([offspring1, offspring2])
+#         else:
+#             offspring.extend([parents[i], parents[i+1]])
+#     return offspring
 
-amp=torch.tensor(opt_pd_complexE[16:33]).to(device)
-phi=torch.tensor(opt_pd_complexE[33:]).to(device)
-complexExitation = (amp * torch.exp(1j*phi))#张量操作
-print('优化后的 positionlist:', positionlist)
-print('优化后的 complexExitation:', complexExitation)
-print('优化的amp', torch.abs(complexExitation))
-print('优化后的目标值:', -opt_value)
+# def mutate(offspring, mutation_rate, lb, ub):
+#     for individual in offspring:
+#         if np.random.rand() < mutation_rate:
+#             mutation_point = np.random.randint(len(individual))
+#             individual[mutation_point] = np.random.uniform(lb[mutation_point], ub[mutation_point])
+#     return offspring
 
-# 用HFSS验证，画图 #################
-# rEPhiDic = AEP.validateAEP(positionlist)
+# def genetic_algorithm(objective_function, lb, ub, pop_size=200, max_generations=200, crossover_rate=0.8, mutation_rate=0.02):
+#     population = initialize_population(pop_size, lb, ub)
+#     best_solution = None
+#     best_value = float('inf')
 
-# rEPhi_sim = rEPhiSynthesis(positionlist, rEPhiDic, complexExitation)
-rEPhi_model = rEPhiSynthesis(positionlist, None, complexExitation).detach().cpu().numpy()
+#     for generation in range(max_generations):
+#         fitnesses = [objective_function(individual) for individual in population]
+        
+#         if min(fitnesses) < best_value:
+#             best_value = min(fitnesses)
+#             best_solution = population[np.argmin(fitnesses)]
 
-# AEPcriterion = criterion(rEPhi_model, rEPhi_sim)
-# print(f'AEPcriterion: {AEPcriterion}')
+#         parents = select_parents(population, fitnesses, pop_size // 2)
+#         offspring = crossover(parents, crossover_rate)
+#         offspring = mutate(offspring, mutation_rate, lb, ub)
 
-# x = value['Theta']
-x = [n for n in range(-90,91)]
+#         population = parents + offspring
 
-# 将 ymodel 和 ysim 转换为 dB 单位
-ymodel_db = 20 * np.log10(np.abs(rEPhi_model))
-# ysim_db = 20 * np.log10(np.abs(rEPhi_sim))
+#     return best_solution, best_value
 
-# 绘制图表
-fig, ax = plt.subplots()
-ax.plot(x, ymodel_db, label='Model (dB)')
-# ax.plot(x, ysim_db, label='Sim (dB)')
-ax.set_xlabel('Theta')
-ax.set_ylabel('Magnitude (dB)')
-ax.legend()
-plt.show()
+# # 16 positiondelta + 17 complexExitation
+# lb = [15]*16+[0.7]*17+[0]*17
+# ub = [30]*16+[1]*17+[np.pi/2]*17
+
+# from scipy.optimize import differential_evolution
+# # 16 positiondelta + 17 complexExitation (amplitude and phase)
+# bounds = [(15, 30)]*16 + [(0.7, 1)]*17 + [(0, np.pi/2)]*17
+# # Differential Evolution optimization
+# result = differential_evolution(objective_function, bounds, strategy='best1bin', maxiter=200, popsize=20)
+
+# opt_pd_complexE = result.x
+# opt_value = result.fun
+# # 使用PSO优化
+# # opt_pd_complexE, opt_value = pso(objective_function, lb, ub, swarmsize=200, maxiter=200)
+# # 使用模拟退火优化
+# # opt_pd_complexE, opt_value = genetic_algorithm(objective_function, lb, ub)
+
+# #还原positionlist
+# positionlist = [0]
+# for i in range(16):
+#     positionlist.append(positionlist[i] + opt_pd_complexE[i])
+
+# amp=torch.tensor(opt_pd_complexE[16:33]).to(device)
+# phi=torch.tensor(opt_pd_complexE[33:]).to(device)
+# complexExitation = (amp * torch.exp(1j*phi))#张量操作
+# print('优化后的 positionlist:', positionlist)
+# print('优化后的 complexExitation:', complexExitation)
+# print('优化后的 amp:', torch.abs(complexExitation))
+# print('优化后的目标值:', -opt_value)
+
+# # 用HFSS验证，画图 #################
+# # rEPhiDic = AEP.validateAEP(positionlist)
+
+# # rEPhi_sim = rEPhiSynthesis(positionlist, rEPhiDic, complexExitation)
+# rEPhi_model = rEPhiSynthesis(positionlist, None, complexExitation).detach().cpu().numpy()
+
+# # AEPcriterion = criterion(rEPhi_model, rEPhi_sim)
+# # print(f'AEPcriterion: {AEPcriterion}')
+
+# # x = value['Theta']
+# x = [n for n in range(-90,91)]
+
+# # 将 ymodel 和 ysim 转换为 dB 单位
+# ymodel_db = 20 * np.log10(np.abs(rEPhi_model))
+# # ysim_db = 20 * np.log10(np.abs(rEPhi_sim))
+
+# # 绘制图表
+# fig, ax = plt.subplots()
+# ax.plot(x, ymodel_db, label='Model (dB)')
+# # ax.plot(x, ysim_db, label='Sim (dB)')
+# ax.set_xlabel('Theta')
+# ax.set_ylabel('Magnitude (dB)')
+# ax.legend()
+# plt.show()
