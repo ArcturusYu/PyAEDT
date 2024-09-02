@@ -1,8 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import Dataset, DataLoader, random_split
-from torch.utils.data import ConcatDataset
+from torch.utils.data import Dataset, DataLoader, ConcatDataset, random_split
 import os
 
 class CustomDataset(Dataset):
@@ -53,71 +52,102 @@ test_size = total_size - train_size
 print(f'Train size: {train_size}, Test size: {test_size}')
 # Splitting the dataset
 train_dataset, test_dataset = random_split(combined_dataset, [train_size, test_size])
-train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True, pin_memory=True)
-test_loader = DataLoader(test_dataset, batch_size=4, shuffle=False)
-
+train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True, pin_memory=True)
+test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
 
 class DeepFcNetwork(nn.Module):
     def __init__(self):
         super(DeepFcNetwork, self).__init__()
-        # 定义全连接层
-        self.fc1 = nn.Linear(6, 64)
-        self.bn1 = nn.BatchNorm1d(64)
-        self.fc2 = nn.Linear(64, 128)
-        self.bn2 = nn.BatchNorm1d(128)
-        self.fc3 = nn.Linear(128, 256)
+        # Define average pooling layer to reduce feature size
+        self.avg_pool = nn.AvgPool1d(kernel_size=3)  # Example: Reducing size by half
+        
+        # Define fully connected layers with dropout
+        reduced_size = 501 // 3  # Assuming the pooling reduces the size by half
+        self.fc1 = nn.Linear(6 * reduced_size, 1024)
+        self.bn1 = nn.BatchNorm1d(1024)
+        self.dropout1 = nn.Dropout(p=0.5)  # 50% dropout after the first layer
+        
+        self.fc2 = nn.Linear(1024, 512)
+        self.bn2 = nn.BatchNorm1d(512)
+        self.dropout2 = nn.Dropout(p=0.5)  # 50% dropout after the second layer
+        
+        self.fc3 = nn.Linear(512, 256)
         self.bn3 = nn.BatchNorm1d(256)
-        self.fc4 = nn.Linear(256, 256)
-        self.bn4 = nn.BatchNorm1d(256)
-        self.fc5 = nn.Linear(256, 128)
-        self.bn5 = nn.BatchNorm1d(128)
-        self.fc6 = nn.Linear(128, 64)
-        self.bn6 = nn.BatchNorm1d(64)
-        self.fc7 = nn.Linear(64, 12)
+        self.dropout3 = nn.Dropout(p=0.5)  # 50% dropout after the third layer
+        
+        self.fc4 = nn.Linear(256, 128)
+        self.bn4 = nn.BatchNorm1d(128)
+        self.dropout4 = nn.Dropout(p=0.5)  # 50% dropout after the fourth layer
+        
+        self.fc5 = nn.Linear(128, 64)
+        self.bn5 = nn.BatchNorm1d(64)
+        self.dropout5 = nn.Dropout(p=0.5)  # 50% dropout after the fifth layer
+        
+        self.fc6 = nn.Linear(64, 32)
+        self.bn6 = nn.BatchNorm1d(32)
+        self.dropout6 = nn.Dropout(p=0.5)  # 50% dropout after the sixth layer
+        
+        self.fc7 = nn.Linear(32, 12)
 
-        # 残差连接
-        self.shortcut1 = nn.Linear(6, 64)
-        self.shortcut2 = nn.Linear(64, 128)
-        self.shortcut3 = nn.Linear(128, 256)
-        self.shortcut5 = nn.Linear(256, 128)
-        self.shortcut6 = nn.Linear(128, 64)
+        # Define shortcut layers for residual connections
+        self.shortcut1 = nn.Linear(6 * reduced_size, 1024)
+        self.shortcut2 = nn.Linear(1024, 512)
+        self.shortcut3 = nn.Linear(512, 256)
+        self.shortcut4 = nn.Linear(256, 128)
+        self.shortcut5 = nn.Linear(128, 64)
+        self.shortcut6 = nn.Linear(64, 32)
 
     def forward(self, x):
-        identity = x
+        # Apply average pooling to reduce feature size
+        x = self.avg_pool(x)
+        
+        # Flatten the input from (batch_size, 6, reduced_size) to (batch_size, 6 * reduced_size)
+        x = x.view(x.size(0), -1)
+        
+        # First layer with residual connection and dropout
+        identity = self.shortcut1(x)
         x = F.relu(self.bn1(self.fc1(x)))
-        identity = self.shortcut1(identity)
-        x += identity  # 残差连接
+        x = self.dropout1(x)
+        x = x + identity  # Avoid in-place operation
 
-        identity = x
+        # Second layer with residual connection and dropout
+        identity = self.shortcut2(x)
         x = F.relu(self.bn2(self.fc2(x)))
-        identity = self.shortcut2(identity)
-        x += identity  # 残差连接
+        x = self.dropout2(x)
+        x = x + identity
 
-        identity = x
+        # Third layer with residual connection and dropout
+        identity = self.shortcut3(x)
         x = F.relu(self.bn3(self.fc3(x)))
-        identity = self.shortcut3(identity)
-        x += identity  # 残差连接
+        x = self.dropout3(x)
+        x = x + identity
 
-        x = F.relu(self.bn4(self.fc4(x)))  # 在这一层保持256个单元，所以没有残差连接
+        # Fourth layer with residual connection and dropout
+        identity = self.shortcut4(x)
+        x = F.relu(self.bn4(self.fc4(x)))
+        x = self.dropout4(x)
+        x = x + identity
 
-        identity = x
+        # Fifth layer with residual connection and dropout
+        identity = self.shortcut5(x)
         x = F.relu(self.bn5(self.fc5(x)))
-        identity = self.shortcut5(identity)
-        x += identity  # 残差连接
+        x = self.dropout5(x)
+        x = x + identity
 
-        identity = x
+        # Sixth layer with residual connection and dropout
+        identity = self.shortcut6(x)
         x = F.relu(self.bn6(self.fc6(x)))
-        identity = self.shortcut6(identity)
-        x += identity  # 残差连接
+        x = self.dropout6(x)
+        x = x + identity
 
-        x = self.fc7(x)  # 最后一层不使用激活函数
+        # Final layer without activation
+        x = self.fc7(x)
         return x
-
 
 criterion = torch.nn.MSELoss()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = DeepFcNetwork().to(device)
-optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 
 
 def train_earlystop(model, criterion, optimizer, num_epochs, patience=5):
@@ -165,5 +195,6 @@ def train_earlystop(model, criterion, optimizer, num_epochs, patience=5):
             model.load_state_dict(best_model_wts)
             break
 
-
-# train_earlystop(model, criterion, optimizer, num_epochs=1000, patience=5)
+train_earlystop(model, criterion, optimizer, num_epochs=100, patience=50)
+idealpattern = torch.tensor([-90] * 501 + [0] * 501 + [-90] * 501 + [0] * 501 + [-90] * 501 + [0] * 501, dtype=torch.float32).view(1,-1).to(device)
+model(idealpattern)
