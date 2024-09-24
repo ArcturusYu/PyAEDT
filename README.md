@@ -1,30 +1,29 @@
-# PyAEDT and PyTorch Learning Notebook
+# PyAEDT and PyTorch Learning Repository
 
-Welcome to this learning notebook designed for newcomers to PyAEDT and PyTorch. This repository contains various Python scripts and resources aimed at helping you understand and experiment with electromagnetic simulations and machine learning techniques.
+Welcome to my learning repository! As a newcomer to PyAEDT and PyTorch, I've created a collection of Python scripts to explore electromagnetic simulations and neural network optimizations. These scripts represent my initial attempts and experimentation in these fields.
 
 ## Overview
 
-This notebook includes examples and tutorials that cover:
+This repository contains various scripts that focus on:
 
-- Basic operations in PyAEDT for electromagnetic simulation.
-- Implementing neural networks using PyTorch.
-- Practical applications of machine learning in electromagnetics.
+- Electromagnetic component analysis
+- Neural network modeling and optimization
+- Data handling for simulations
 
 ## Getting Started
 
 ### Prerequisites
 
-Make sure you have the following installed:
+To run the scripts, you'll need:
 
 - Python 3.x
 - PyTorch
 - PyAEDT
 - NumPy
-- Matplotlib
+- Matplotlib (for any visualizations)
 
 ### Installation
 
-Clone the repository to your local machine:
-
-```bash
-git clone https://github.com/your-username/your-repo-name.git
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/your-username/your-repo-name.git
